@@ -37,6 +37,14 @@ public class Application {
             System.out.println("Configuration loaded successfully");
             System.out.println();
 
+            // Test email service if enabled
+            if (Config.getInstance().isSendTestEmailOnStartup()) {
+                System.out.println("Testing email service...");
+                eu.andreasson.webpulse.mail.MailClient testMailClient = new eu.andreasson.webpulse.mail.MailClient();
+                testMailClient.sendTestEmail();
+                System.out.println();
+            }
+
             // Create and start monitor
             WebPulse monitor = new WebPulse();
             
