@@ -134,4 +134,27 @@ public class MailClient {
             e.printStackTrace();
         }
     }
+
+    /**
+     * Send a test email to verify mail service is working
+     */
+    public void sendTestEmail() {
+        try {
+            String subject = "[WebPulse Test] Email Service Test";
+            
+            StringBuilder body = new StringBuilder();
+            body.append("WebPulse Health Monitor Email Test\n");
+            body.append("===================================\n\n");
+            body.append("This is a test email to verify that the email service is configured correctly.\n\n");
+            body.append("Time: ").append(new Date()).append("\n\n");
+            body.append("If you received this message, your email configuration is working properly.\n");
+            
+            sendAlert(subject, body.toString());
+            System.out.println("Test email sent successfully");
+        } catch (MessagingException e) {
+            System.err.println("Failed to send test email: " + e.getMessage());
+            System.err.println("Please check your email configuration in config.json");
+            e.printStackTrace();
+        }
+    }
 }
