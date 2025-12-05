@@ -30,6 +30,9 @@ public class Config {
     
     @SerializedName("alert_cooldown_hours")
     private int alertCooldownHours = 24;
+    
+    @SerializedName("send_test_email_on_startup")
+    private boolean sendTestEmailOnStartup = false;
 
     private Config() {
         // Private constructor for singleton
@@ -48,8 +51,40 @@ public class Config {
             throw new IOException("Failed to load configuration from " + configPath);
         }
         
+        // Resolve environment variables
+        instance.resolveEnvironmentVariables();
+        
         // Validate configuration
         instance.validate();
+    }
+
+    /**
+     * Resolve environment variable references in configuration
+     * Values starting with "env:" will be replaced with the corresponding environment variable
+     */
+    private void resolveEnvironmentVariables() {
+        recipientEmail = resolveEnvVar(recipientEmail);
+        
+        if (mailConfig != null) {
+            mailConfig.resolveEnvironmentVariables();
+        }
+    }
+
+    /**
+     * Resolve a single environment variable reference
+     * @param value The value that may contain an env: reference
+     * @return The resolved value or the original if not an env reference
+     */
+    private static String resolveEnvVar(String value) {
+        if (value != null && value.startsWith("env:")) {
+            String envVarName = value.substring(4);
+            String envValue = System.getenv(envVarName);
+            if (envValue == null) {
+                throw new IllegalStateException("Environment variable not found: " + envVarName);
+            }
+            return envValue;
+        }
+        return value;
     }
 
     /**
@@ -102,6 +137,10 @@ public class Config {
         return alertCooldownHours;
     }
 
+    public boolean isSendTestEmailOnStartup() {
+        return sendTestEmailOnStartup;
+    }
+
     /**
      * Mail service configuration
      */
@@ -140,6 +179,17 @@ public class Config {
             if (fromEmail == null || fromEmail.isEmpty()) {
                 throw new IllegalStateException("From email is not configured");
             }
+        }
+
+        /**
+         * Resolve environment variable references in mail configuration
+         */
+        private void resolveEnvironmentVariables() {
+            smtpHost = Config.resolveEnvVar(smtpHost);
+            username = Config.resolveEnvVar(username);
+            password = Config.resolveEnvVar(password);
+            fromEmail = Config.resolveEnvVar(fromEmail);
+            fromName = Config.resolveEnvVar(fromName);
         }
 
         public String getSmtpHost() {
