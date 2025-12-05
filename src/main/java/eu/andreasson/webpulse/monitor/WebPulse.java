@@ -54,6 +54,34 @@ public class WebPulse {
             // Schedule initial check immediately
             scheduler.schedule(() -> checkUrl(monitor), 0, TimeUnit.SECONDS);
         }
+        
+        // Schedule daily status report
+        scheduler.scheduleAtFixedRate(this::printDailyStatusReport, 1, 24, TimeUnit.HOURS);
+    }
+
+    /**
+     * Print daily status report of all monitored URLs
+     */
+    private void printDailyStatusReport() {
+        System.out.println("========================================");
+        System.out.println("Daily Status Report - " + new java.util.Date());
+        System.out.println("========================================");
+        System.out.println("Active sites being monitored: " + config.getMonitoredUrls().size());
+        System.out.println();
+        
+        for (String url : config.getMonitoredUrls()) {
+            UrlMonitor monitor = urlMonitors.get(url);
+            String status = monitor.isInFailureState() ? "DOWN" : "UP";
+            String statusSymbol = monitor.isInFailureState() ? "✗" : "✓";
+            
+            System.out.println(statusSymbol + " " + url + " - Status: " + status);
+            if (monitor.isInFailureState()) {
+                System.out.println("  └─ Consecutive failures: " + monitor.getConsecutiveFailures());
+                System.out.println("  └─ Last error: " + monitor.getLastError());
+            }
+        }
+        
+        System.out.println("========================================");
     }
 
     /**
