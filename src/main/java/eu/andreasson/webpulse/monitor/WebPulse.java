@@ -146,7 +146,7 @@ public class WebPulse {
             // Continue checking every minute
             System.out.println("[WARNING] " + monitor.getUrl() + " failed " + failureCount + " times");
             scheduler.schedule(() -> checkUrl(monitor), 1, TimeUnit.MINUTES);
-        } else if (failureCount == config.getFailureThreshold()) {
+        } else if (failureCount >= config.getFailureThreshold()) {
             // Threshold reached - check if we should send alert (cooldown period)
             long currentTime = System.currentTimeMillis();
             long cooldownMillis = config.getAlertCooldownHours() * 60 * 60 * 1000L;
@@ -161,13 +161,17 @@ public class WebPulse {
                 );
                 monitor.updateLastAlertTime();
             } else {
-                long hoursRemaining = (cooldownMillis - timeSinceLastAlert) / (60 * 60 * 1000);
-                System.out.println("[ALERT SUPPRESSED] " + monitor.getUrl() + " still down, but cooldown active (" + hoursRemaining + "h remaining)");
+                // Only print suppression message every 15 minutes
+                long timeSinceLastMessage = currentTime - monitor.getLastSuppressionMessageTime();
+                long fifteenMinutesMillis = 15 * 60 * 1000L;
+                
+                if (monitor.getLastSuppressionMessageTime() == 0 || timeSinceLastMessage >= fifteenMinutesMillis) {
+                    long hoursRemaining = (cooldownMillis - timeSinceLastAlert) / (60 * 60 * 1000);
+                    System.out.println("[ALERT SUPPRESSED] " + monitor.getUrl() + " still down, but cooldown active (" + hoursRemaining + "h remaining)");
+                    monitor.updateLastSuppressionMessageTime();
+                }
             }
             // Continue checking every minute
-            scheduler.schedule(() -> checkUrl(monitor), 1, TimeUnit.MINUTES);
-        } else {
-            // Already in alert state, continue checking
             scheduler.schedule(() -> checkUrl(monitor), 1, TimeUnit.MINUTES);
         }
     }
@@ -226,6 +230,7 @@ public class WebPulse {
         private String lastError;
         private boolean inFailureState;
         private long lastAlertTime;
+        private long lastSuppressionMessageTime;
 
         public UrlMonitor(String url) {
             this.url = url;
@@ -233,6 +238,7 @@ public class WebPulse {
             this.lastError = "";
             this.inFailureState = false;
             this.lastAlertTime = 0;
+            this.lastSuppressionMessageTime = 0;
         }
 
         public String getUrl() {
@@ -256,6 +262,7 @@ public class WebPulse {
             lastError = "";
             inFailureState = false;
             lastAlertTime = 0;
+            lastSuppressionMessageTime = 0;
         }
 
         public void recordFailure() {
@@ -273,6 +280,14 @@ public class WebPulse {
 
         public void updateLastAlertTime() {
             this.lastAlertTime = System.currentTimeMillis();
+        }
+
+        public long getLastSuppressionMessageTime() {
+            return lastSuppressionMessageTime;
+        }
+
+        public void updateLastSuppressionMessageTime() {
+            this.lastSuppressionMessageTime = System.currentTimeMillis();
         }
     }
 }
