@@ -33,10 +33,17 @@ public class MailClient {
     private Session createSession() {
         Properties props = new Properties();
         props.put("mail.smtp.auth", "true");
-        props.put("mail.smtp.starttls.enable", String.valueOf(mailConfig.isEnableTls()));
         props.put("mail.smtp.host", mailConfig.getSmtpHost());
         props.put("mail.smtp.port", String.valueOf(mailConfig.getSmtpPort()));
-        props.put("mail.smtp.ssl.protocols", "TLSv1.2");
+        
+        // Port 465 requires SSL, port 587 uses STARTTLS
+        if (mailConfig.getSmtpPort() == 465) {
+            props.put("mail.smtp.ssl.enable", "true");
+            props.put("mail.smtp.ssl.protocols", "TLSv1.2 TLSv1.3");
+        } else {
+            props.put("mail.smtp.starttls.enable", String.valueOf(mailConfig.isEnableTls()));
+            props.put("mail.smtp.ssl.protocols", "TLSv1.2 TLSv1.3");
+        }
 
         return Session.getInstance(props, new Authenticator() {
             @Override

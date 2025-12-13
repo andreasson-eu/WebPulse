@@ -4,7 +4,7 @@
   <groupId>eu.andreasson</groupId>
   <artifactId>webpulse</artifactId>
   <name>WebPulse</name>
-  <version>1.0.0</version>
+  <version>1.0.1</version>
   <description>Health check monitoring system</description>
   <build>
     <plugins>
