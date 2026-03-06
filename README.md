@@ -53,19 +53,20 @@ Create `config.json` with your settings
     "enable_tls": true
   },
   "urls": [
-    "https://mail.andreasson.eu",
     "https://andreasson.eu",
     "https://crumbleworld.com"
   ],
   "recipient_email": "alerts@andreasson.eu",
   "check_interval_minutes": 5,
-  "failure_threshold": 5
+  "failure_threshold": 5,
+  "alert_cooldown_hours": 24,
+  "send_test_email_on_startup": true
 }
 ```
 
 **Configuration Options:**
 - `smtp_host`: Gmail SMTP server (smtp.gmail.com)
-- `smtp_port`: Port 587 for TLS
+- `smtp_port`: Port 587 for TLS or 465 for SSL
 - `username`: Your Gmail address
 - `password`: Your Gmail App Password (NOT your regular password)
 - `from_email`: Email address for the sender
@@ -148,3 +149,8 @@ WebPulse/
 ## License
 
 See LICENSE file for details.
+
+## Changes
+
+# 1.0.2
+* Added support for SSL on port 465

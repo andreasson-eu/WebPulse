@@ -1,10 +1,13 @@
 package eu.andreasson.webpulse.monitor;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.hc.client5.http.classic.methods.HttpGet;
@@ -25,12 +28,22 @@ public class WebPulse {
     private final MailClient mailClient;
     private final ScheduledExecutorService scheduler;
     private final Map<String, UrlMonitor> urlMonitors;
+    
+    // Alert batching
+    private final List<MailClient.FailureInfo> pendingFailureAlerts;
+    private final List<MailClient.RecoveryInfo> pendingRecoveryAlerts;
+    private ScheduledFuture<?> scheduledFailureBatch;
+    private ScheduledFuture<?> scheduledRecoveryBatch;
+    private final Object failureLock = new Object();
+    private final Object recoveryLock = new Object();
 
     public WebPulse() {
         this.config = Config.getInstance();
         this.mailClient = new MailClient();
         this.scheduler = Executors.newScheduledThreadPool(config.getMonitoredUrls().size());
         this.urlMonitors = new HashMap<>();
+        this.pendingFailureAlerts = new ArrayList<>();
+        this.pendingRecoveryAlerts = new ArrayList<>();
         
         // Initialize monitors for each URL
         for (String url : config.getMonitoredUrls()) {
@@ -120,7 +133,10 @@ public class WebPulse {
         if (monitor.isInFailureState()) {
             // Recovery - send recovery notification
             System.out.println("[RECOVERY] " + monitor.getUrl() + " is back online");
-            mailClient.sendRecoveryAlert(monitor.getUrl());
+            long downtimeStart = monitor.getDowntimeStartTime();
+            long recoveryTime = System.currentTimeMillis();
+            String downError = monitor.getLastError();
+            queueRecoveryAlert(monitor.getUrl(), downtimeStart, recoveryTime, downError);
         }
         
         monitor.recordSuccess();
@@ -154,7 +170,7 @@ public class WebPulse {
             
             if (monitor.getLastAlertTime() == 0 || timeSinceLastAlert >= cooldownMillis) {
                 System.out.println("[ALERT] " + monitor.getUrl() + " failed " + failureCount + " consecutive times!");
-                mailClient.sendHealthCheckAlert(
+                queueFailureAlert(
                     monitor.getUrl(),
                     failureCount,
                     monitor.getLastError()
@@ -222,6 +238,76 @@ public class WebPulse {
     }
 
     /**
+     * Queue a failure alert for batched sending
+     */
+    private void queueFailureAlert(String url, int failureCount, String lastError) {
+        synchronized (failureLock) {
+            pendingFailureAlerts.add(new MailClient.FailureInfo(url, failureCount, lastError));
+            
+            // If no batch send is scheduled, schedule one for up to 90 seconds
+            if (scheduledFailureBatch == null || scheduledFailureBatch.isDone()) {
+                System.out.println("[BATCH] Scheduling failure alert batch send in 90 seconds");
+                scheduledFailureBatch = scheduler.schedule(
+                    this::sendBatchedFailureAlerts,
+                    90,
+                    TimeUnit.SECONDS
+                );
+            } else {
+                System.out.println("[BATCH] Added to pending failure alerts (will send with existing batch)");
+            }
+        }
+    }
+
+    /**
+     * Queue a recovery alert for batched sending
+     */
+    private void queueRecoveryAlert(String url, long downtimeStartTime, long recoveryTime, String errorCause) {
+        synchronized (recoveryLock) {
+            pendingRecoveryAlerts.add(new MailClient.RecoveryInfo(url, downtimeStartTime, recoveryTime, errorCause));
+            
+            // If no batch send is scheduled, schedule one for up to 90 seconds
+            if (scheduledRecoveryBatch == null || scheduledRecoveryBatch.isDone()) {
+                System.out.println("[BATCH] Scheduling recovery alert batch send in 90 seconds");
+                scheduledRecoveryBatch = scheduler.schedule(
+                    this::sendBatchedRecoveryAlerts,
+                    90,
+                    TimeUnit.SECONDS
+                );
+            } else {
+                System.out.println("[BATCH] Added to pending recovery alerts (will send with existing batch)");
+            }
+        }
+    }
+
+    /**
+     * Send all pending failure alerts as a batch
+     */
+    private void sendBatchedFailureAlerts() {
+        synchronized (failureLock) {
+            if (!pendingFailureAlerts.isEmpty()) {
+                System.out.println("[BATCH] Sending batched failure alerts for " + pendingFailureAlerts.size() + " URL(s)");
+                mailClient.sendBatchHealthCheckAlert(new ArrayList<>(pendingFailureAlerts));
+                pendingFailureAlerts.clear();
+            }
+            scheduledFailureBatch = null;
+        }
+    }
+
+    /**
+     * Send all pending recovery alerts as a batch
+     */
+    private void sendBatchedRecoveryAlerts() {
+        synchronized (recoveryLock) {
+            if (!pendingRecoveryAlerts.isEmpty()) {
+                System.out.println("[BATCH] Sending batched recovery alerts for " + pendingRecoveryAlerts.size() + " URL(s)");
+                mailClient.sendBatchRecoveryAlert(new ArrayList<>(pendingRecoveryAlerts));
+                pendingRecoveryAlerts.clear();
+            }
+            scheduledRecoveryBatch = null;
+        }
+    }
+
+    /**
      * Monitor state for a single URL
      */
     private static class UrlMonitor {
@@ -231,6 +317,7 @@ public class WebPulse {
         private boolean inFailureState;
         private long lastAlertTime;
         private long lastSuppressionMessageTime;
+        private long downtimeStartTime;
 
         public UrlMonitor(String url) {
             this.url = url;
@@ -239,6 +326,7 @@ public class WebPulse {
             this.inFailureState = false;
             this.lastAlertTime = 0;
             this.lastSuppressionMessageTime = 0;
+            this.downtimeStartTime = 0;
         }
 
         public String getUrl() {
@@ -263,10 +351,15 @@ public class WebPulse {
             inFailureState = false;
             lastAlertTime = 0;
             lastSuppressionMessageTime = 0;
+            downtimeStartTime = 0;
         }
 
         public void recordFailure() {
             consecutiveFailures++;
+            // Record the downtime start time on the first failure
+            if (consecutiveFailures == 1 && downtimeStartTime == 0) {
+                downtimeStartTime = System.currentTimeMillis();
+            }
             inFailureState = true;
         }
 
@@ -288,6 +381,10 @@ public class WebPulse {
 
         public void updateLastSuppressionMessageTime() {
             this.lastSuppressionMessageTime = System.currentTimeMillis();
+        }
+
+        public long getDowntimeStartTime() {
+            return downtimeStartTime;
         }
     }
 }
