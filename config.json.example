@@ -17,5 +17,7 @@
   "check_interval_minutes": 5,
   "failure_threshold": 5,
   "alert_cooldown_hours": 24,
+  "batch_failure_alert_seconds": 120,
+  "batch_recovery_alert_seconds": 90,
   "send_test_email_on_startup": true
 }

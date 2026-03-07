@@ -244,12 +244,13 @@ public class WebPulse {
         synchronized (failureLock) {
             pendingFailureAlerts.add(new MailClient.FailureInfo(url, failureCount, lastError));
             
-            // If no batch send is scheduled, schedule one for up to 90 seconds
+            // If no batch send is scheduled, schedule one
             if (scheduledFailureBatch == null || scheduledFailureBatch.isDone()) {
-                System.out.println("[BATCH] Scheduling failure alert batch send in 90 seconds");
+                int delaySeconds = config.getBatchFailureAlertSeconds();
+                System.out.println("[BATCH] Scheduling failure alert batch send in " + delaySeconds + " seconds");
                 scheduledFailureBatch = scheduler.schedule(
                     this::sendBatchedFailureAlerts,
-                    90,
+                    delaySeconds,
                     TimeUnit.SECONDS
                 );
             } else {
@@ -265,12 +266,13 @@ public class WebPulse {
         synchronized (recoveryLock) {
             pendingRecoveryAlerts.add(new MailClient.RecoveryInfo(url, downtimeStartTime, recoveryTime, errorCause));
             
-            // If no batch send is scheduled, schedule one for up to 90 seconds
+            // If no batch send is scheduled, schedule one
             if (scheduledRecoveryBatch == null || scheduledRecoveryBatch.isDone()) {
-                System.out.println("[BATCH] Scheduling recovery alert batch send in 90 seconds");
+                int delaySeconds = config.getBatchRecoveryAlertSeconds();
+                System.out.println("[BATCH] Scheduling recovery alert batch send in " + delaySeconds + " seconds");
                 scheduledRecoveryBatch = scheduler.schedule(
                     this::sendBatchedRecoveryAlerts,
-                    90,
+                    delaySeconds,
                     TimeUnit.SECONDS
                 );
             } else {

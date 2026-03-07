@@ -31,6 +31,12 @@ public class Config {
     @SerializedName("alert_cooldown_hours")
     private int alertCooldownHours = 24;
     
+    @SerializedName("batch_failure_alert_seconds")
+    private int batchFailureAlertSeconds = 120;
+    
+    @SerializedName("batch_recovery_alert_seconds")
+    private int batchRecoveryAlertSeconds = 90;
+    
     @SerializedName("send_test_email_on_startup")
     private boolean sendTestEmailOnStartup = false;
 
@@ -135,6 +141,14 @@ public class Config {
 
     public int getAlertCooldownHours() {
         return alertCooldownHours;
+    }
+
+    public int getBatchFailureAlertSeconds() {
+        return batchFailureAlertSeconds;
+    }
+
+    public int getBatchRecoveryAlertSeconds() {
+        return batchRecoveryAlertSeconds;
     }
 
     public boolean isSendTestEmailOnStartup() {
