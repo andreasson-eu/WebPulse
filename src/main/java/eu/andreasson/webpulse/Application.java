@@ -3,6 +3,7 @@ package eu.andreasson.webpulse;
 import java.io.File;
 
 import eu.andreasson.webpulse.config.Config;
+import eu.andreasson.webpulse.logging.ConsoleLogger;
 import eu.andreasson.webpulse.monitor.WebPulse;
 
 /**
@@ -12,10 +13,10 @@ public class Application {
     private static final String DEFAULT_CONFIG_PATH = "config.json";
 
     public static void main(String[] args) {
-        System.out.println("===========================================");
-        System.out.println("    WebPulse Health Monitor v1.0.2");
-        System.out.println("===========================================");
-        System.out.println();
+        ConsoleLogger.log("===========================================");
+        ConsoleLogger.log("    WebPulse Health Monitor v1.0.3");
+        ConsoleLogger.log("===========================================");
+        ConsoleLogger.log();
 
         // Determine config file path
         String configPath = args.length > 0 ? args[0] : DEFAULT_CONFIG_PATH;
@@ -32,17 +33,17 @@ public class Application {
             }
 
             // Load configuration
-            System.out.println("Loading configuration from: " + configPath);
+            ConsoleLogger.log("Loading configuration from: " + configPath);
             Config.load(configPath);
-            System.out.println("Configuration loaded successfully");
-            System.out.println();
+            ConsoleLogger.log("Configuration loaded successfully");
+            ConsoleLogger.log();
 
             // Test email service if enabled
             if (Config.getInstance().isSendTestEmailOnStartup()) {
-                System.out.println("Testing email service...");
+                ConsoleLogger.log("Testing email service...");
                 eu.andreasson.webpulse.mail.MailClient testMailClient = new eu.andreasson.webpulse.mail.MailClient();
                 testMailClient.sendTestEmail();
-                System.out.println();
+                ConsoleLogger.log();
             }
 
             // Create and start monitor
@@ -50,9 +51,9 @@ public class Application {
             
             // Add shutdown hook for graceful shutdown
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                System.out.println();
+                ConsoleLogger.log();
                 monitor.stop();
-                System.out.println("WebPulse Health Monitor stopped");
+                ConsoleLogger.log("WebPulse Health Monitor stopped");
             }));
 
             // Start monitoring

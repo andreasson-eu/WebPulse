@@ -84,20 +84,20 @@ Build the project using Maven:
 mvn clean package
 ```
 
-This creates `target/webpulse-1.0.0.jar`
+This creates `target/webpulse-1.0.3.jar`
 
 ## Running
 
 Run the application:
 
 ```bash
-java -jar target/webpulse-1.0.0.jar
+java -jar target/webpulse-1.0.3.jar
 ```
 
 Or specify a custom config file:
 
 ```bash
-java -jar target/webpulse-1.0.0.jar /path/to/config.json
+java -jar target/webpulse-1.0.3.jar /path/to/config.json
 ```
 
 ## How It Works
@@ -152,5 +152,12 @@ See LICENSE file for details.
 
 ## Changes
 
+# 1.0.3
+* Added email calls are combined to not send to many mail when multiple sites goes down at the same time
+* Added internet check when downtime is detected to verify that downtime is on target side and not for this server
+* Recover email are only sent when a error max(1,(failure_threshold)) is reached so we don't send for smaller interuptions
+* improved logging
+
 # 1.0.2
 * Added support for SSL on port 465
+

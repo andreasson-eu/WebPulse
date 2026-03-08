@@ -15,6 +15,7 @@ import javax.mail.internet.InternetAddress;
 import javax.mail.internet.MimeMessage;
 
 import eu.andreasson.webpulse.config.Config;
+import eu.andreasson.webpulse.logging.ConsoleLogger;
 
 /**
  * Mail client for sending alert notifications via Gmail SMTP
@@ -84,7 +85,7 @@ public class MailClient {
             // Send message
             Transport.send(message);
             
-            System.out.println("Alert email sent successfully to: " + 
+            ConsoleLogger.log("Alert email sent successfully to: " + 
                 Config.getInstance().getRecipientEmail());
         } catch (UnsupportedEncodingException e) {
             throw new MessagingException("Failed to set email headers", e);
@@ -281,7 +282,7 @@ public class MailClient {
             body.append("If you received this message, your email configuration is working properly.\n");
             
             sendAlert(subject, body.toString());
-            System.out.println("Test email sent successfully");
+            ConsoleLogger.log("Test email sent successfully");
         } catch (MessagingException e) {
             System.err.println("Failed to send test email: " + e.getMessage());
             System.err.println("Please check your email configuration in config.json");

@@ -11,12 +11,15 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.hc.client5.http.classic.methods.HttpGet;
+import org.apache.hc.client5.http.config.RequestConfig;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpResponse;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.apache.hc.core5.http.io.entity.EntityUtils;
+import org.apache.hc.core5.util.Timeout;
 
 import eu.andreasson.webpulse.config.Config;
+import eu.andreasson.webpulse.logging.ConsoleLogger;
 import eu.andreasson.webpulse.mail.MailClient;
 
 /**
@@ -24,6 +27,11 @@ import eu.andreasson.webpulse.mail.MailClient;
  * Monitors URLs and sends alerts on failures
  */
 public class WebPulse {
+    private static final String[] INTERNET_CHECK_URLS = {
+        "https://www.google.com/generate_204",
+        "https://www.cloudflare.com/cdn-cgi/trace"
+    };
+
     private final Config config;
     private final MailClient mailClient;
     private final ScheduledExecutorService scheduler;
@@ -55,11 +63,11 @@ public class WebPulse {
      * Start monitoring all configured URLs
      */
     public void start() {
-        System.out.println("WebPulse Health Monitor started");
-        System.out.println("Monitoring " + config.getMonitoredUrls().size() + " URLs");
-        System.out.println("Check interval: " + config.getCheckIntervalMinutes() + " minutes");
-        System.out.println("Failure threshold: " + config.getFailureThreshold() + " consecutive failures");
-        System.out.println("----------------------------------------");
+        ConsoleLogger.log("WebPulse Health Monitor started");
+        ConsoleLogger.log("Monitoring " + config.getMonitoredUrls().size() + " URLs");
+        ConsoleLogger.log("Check interval: " + config.getCheckIntervalMinutes() + " minutes");
+        ConsoleLogger.log("Failure threshold: " + config.getFailureThreshold() + " consecutive failures");
+        ConsoleLogger.log("----------------------------------------");
         
         for (String url : config.getMonitoredUrls()) {
             UrlMonitor monitor = urlMonitors.get(url);
@@ -76,32 +84,32 @@ public class WebPulse {
      * Print daily status report of all monitored URLs
      */
     private void printDailyStatusReport() {
-        System.out.println("========================================");
-        System.out.println("Daily Status Report - " + new java.util.Date());
-        System.out.println("========================================");
-        System.out.println("Active sites being monitored: " + config.getMonitoredUrls().size());
-        System.out.println();
+        ConsoleLogger.log("========================================");
+        ConsoleLogger.log("Daily Status Report - " + new java.util.Date());
+        ConsoleLogger.log("========================================");
+        ConsoleLogger.log("Active sites being monitored: " + config.getMonitoredUrls().size());
+        ConsoleLogger.log();
         
         for (String url : config.getMonitoredUrls()) {
             UrlMonitor monitor = urlMonitors.get(url);
             String status = monitor.isInFailureState() ? "DOWN" : "UP";
             String statusSymbol = monitor.isInFailureState() ? "✗" : "✓";
             
-            System.out.println(statusSymbol + " " + url + " - Status: " + status);
+            ConsoleLogger.log(statusSymbol + " " + url + " - Status: " + status);
             if (monitor.isInFailureState()) {
-                System.out.println("  └─ Consecutive failures: " + monitor.getConsecutiveFailures());
-                System.out.println("  └─ Last error: " + monitor.getLastError());
+                ConsoleLogger.log("  └─ Consecutive failures: " + monitor.getConsecutiveFailures());
+                ConsoleLogger.log("  └─ Last error: " + monitor.getLastError());
             }
         }
         
-        System.out.println("========================================");
+        ConsoleLogger.log("========================================");
     }
 
     /**
      * Stop monitoring
      */
     public void stop() {
-        System.out.println("Stopping WebPulse Health Monitor...");
+        ConsoleLogger.log("Stopping WebPulse Health Monitor...");
         scheduler.shutdown();
         try {
             if (!scheduler.awaitTermination(10, TimeUnit.SECONDS)) {
@@ -131,12 +139,23 @@ public class WebPulse {
      */
     private void handleHealthyResponse(UrlMonitor monitor) {
         if (monitor.isInFailureState()) {
-            // Recovery - send recovery notification
-            System.out.println("[RECOVERY] " + monitor.getUrl() + " is back online");
-            long downtimeStart = monitor.getDowntimeStartTime();
-            long recoveryTime = System.currentTimeMillis();
-            String downError = monitor.getLastError();
-            queueRecoveryAlert(monitor.getUrl(), downtimeStart, recoveryTime, downError);
+            int minFailuresForRecoveryAlert = Math.max(1, config.getFailureThreshold() - 1);
+            int failureCountBeforeRecovery = monitor.getConsecutiveFailures();
+
+            if (failureCountBeforeRecovery >= minFailuresForRecoveryAlert) {
+                // Recovery - send recovery notification for significant outages
+                ConsoleLogger.log("[RECOVERY] " + monitor.getUrl() + " is back online");
+                long downtimeStart = monitor.getDowntimeStartTime();
+                long recoveryTime = System.currentTimeMillis();
+                String downError = monitor.getLastError();
+                queueRecoveryAlert(monitor.getUrl(), downtimeStart, recoveryTime, downError);
+            } else {
+                ConsoleLogger.log(
+                    "[RECOVERY SUPPRESSED] " + monitor.getUrl() +
+                    " recovered after " + failureCountBeforeRecovery +
+                    " failure(s), below threshold " + minFailuresForRecoveryAlert
+                );
+            }
         }
         
         monitor.recordSuccess();
@@ -150,17 +169,23 @@ public class WebPulse {
      * Handle an unhealthy response
      */
     private void handleUnhealthyResponse(UrlMonitor monitor) {
+        if (!hasInternetAccess()) {
+            ConsoleLogger.log("[INTERNET] Global connectivity check failed; skipping downtime count for " + monitor.getUrl());
+            scheduler.schedule(() -> checkUrl(monitor), 1, TimeUnit.MINUTES);
+            return;
+        }
+
         monitor.recordFailure();
         
         int failureCount = monitor.getConsecutiveFailures();
         
         if (failureCount == 1) {
             // First failure - switch to 1-minute interval
-            System.out.println("[WARNING] " + monitor.getUrl() + " failed first check, switching to 1-minute interval");
+            ConsoleLogger.log("[WARNING] " + monitor.getUrl() + " failed first check, switching to 1-minute interval");
             scheduler.schedule(() -> checkUrl(monitor), 1, TimeUnit.MINUTES);
         } else if (failureCount < config.getFailureThreshold()) {
             // Continue checking every minute
-            System.out.println("[WARNING] " + monitor.getUrl() + " failed " + failureCount + " times");
+            ConsoleLogger.log("[WARNING] " + monitor.getUrl() + " failed " + failureCount + " times");
             scheduler.schedule(() -> checkUrl(monitor), 1, TimeUnit.MINUTES);
         } else if (failureCount >= config.getFailureThreshold()) {
             // Threshold reached - check if we should send alert (cooldown period)
@@ -169,7 +194,7 @@ public class WebPulse {
             long timeSinceLastAlert = currentTime - monitor.getLastAlertTime();
             
             if (monitor.getLastAlertTime() == 0 || timeSinceLastAlert >= cooldownMillis) {
-                System.out.println("[ALERT] " + monitor.getUrl() + " failed " + failureCount + " consecutive times!");
+                ConsoleLogger.log("[ALERT] " + monitor.getUrl() + " failed " + failureCount + " consecutive times!");
                 queueFailureAlert(
                     monitor.getUrl(),
                     failureCount,
@@ -183,13 +208,41 @@ public class WebPulse {
                 
                 if (monitor.getLastSuppressionMessageTime() == 0 || timeSinceLastMessage >= fifteenMinutesMillis) {
                     long hoursRemaining = (cooldownMillis - timeSinceLastAlert) / (60 * 60 * 1000);
-                    System.out.println("[ALERT SUPPRESSED] " + monitor.getUrl() + " still down, but cooldown active (" + hoursRemaining + "h remaining)");
+                    ConsoleLogger.log("[ALERT SUPPRESSED] " + monitor.getUrl() + " still down, but cooldown active (" + hoursRemaining + "h remaining)");
                     monitor.updateLastSuppressionMessageTime();
                 }
             }
             // Continue checking every minute
             scheduler.schedule(() -> checkUrl(monitor), 1, TimeUnit.MINUTES);
         }
+    }
+
+    /**
+     * Verify that global internet connectivity is available.
+     * Downtime is only counted when at least one global endpoint is reachable.
+     */
+    private boolean hasInternetAccess() {
+        RequestConfig requestConfig = RequestConfig.custom()
+            .setConnectTimeout(Timeout.ofSeconds(5))
+            .setResponseTimeout(Timeout.ofSeconds(5))
+            .build();
+
+        try (CloseableHttpClient httpClient = HttpClients.custom()
+            .setDefaultRequestConfig(requestConfig)
+            .build()) {
+            for (String connectivityUrl : INTERNET_CHECK_URLS) {
+                try (CloseableHttpResponse response = httpClient.execute(new HttpGet(connectivityUrl))) {
+                    int statusCode = response.getCode();
+                    if (statusCode >= 200 && statusCode < 400) {
+                        return true;
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        } catch (Exception ignored) {
+        }
+
+        return false;
     }
 
     /**
@@ -210,7 +263,7 @@ public class WebPulse {
                 // Check for HTTP 200
                 if (statusCode != 200) {
                     monitor.setLastError("HTTP " + statusCode);
-                    System.out.println("[WARNING] " + monitor.getUrl() + " status code: " + statusCode);
+                    ConsoleLogger.log("[WARNING] " + monitor.getUrl() + " status code: " + statusCode);
                     return false;
                 }
                 
@@ -218,8 +271,8 @@ public class WebPulse {
                 if (body.contains("default backend - 404") ||
                     body.contains("404 Not Found") && body.contains("nginx")) {
                     monitor.setLastError("Nginx default backend detected");
-                    System.out.println("[WARNING] " + monitor.getUrl() + " returned nginx default backend page");
-                    System.out.println("[WARNING] " + monitor.getUrl() + " debug: " + body);
+                    ConsoleLogger.log("[WARNING] " + monitor.getUrl() + " returned nginx default backend page");
+                    ConsoleLogger.log("[WARNING] " + monitor.getUrl() + " debug: " + body);
                     return false;
                 }
                 
@@ -228,11 +281,11 @@ public class WebPulse {
             }
         } catch (IOException e) {
             monitor.setLastError("Connection error: " + e.getMessage());
-            System.out.println("[WARNING] " + monitor.getUrl() + " connection error: " + e.getMessage());
+            ConsoleLogger.log("[WARNING] " + monitor.getUrl() + " connection error: " + e.getMessage());
             return false;
         } catch (Exception e) {
             monitor.setLastError("Error: " + e.getMessage());
-            System.out.println("[WARNING] " + monitor.getUrl() + " Error: " + e.getMessage());
+            ConsoleLogger.log("[WARNING] " + monitor.getUrl() + " Error: " + e.getMessage());
             return false;
         }
     }
@@ -247,14 +300,14 @@ public class WebPulse {
             // If no batch send is scheduled, schedule one
             if (scheduledFailureBatch == null || scheduledFailureBatch.isDone()) {
                 int delaySeconds = config.getBatchFailureAlertSeconds();
-                System.out.println("[BATCH] Scheduling failure alert batch send in " + delaySeconds + " seconds");
+                ConsoleLogger.log("[BATCH] Scheduling failure alert batch send in " + delaySeconds + " seconds");
                 scheduledFailureBatch = scheduler.schedule(
                     this::sendBatchedFailureAlerts,
                     delaySeconds,
                     TimeUnit.SECONDS
                 );
             } else {
-                System.out.println("[BATCH] Added to pending failure alerts (will send with existing batch)");
+                ConsoleLogger.log("[BATCH] Added to pending failure alerts (will send with existing batch)");
             }
         }
     }
@@ -269,14 +322,14 @@ public class WebPulse {
             // If no batch send is scheduled, schedule one
             if (scheduledRecoveryBatch == null || scheduledRecoveryBatch.isDone()) {
                 int delaySeconds = config.getBatchRecoveryAlertSeconds();
-                System.out.println("[BATCH] Scheduling recovery alert batch send in " + delaySeconds + " seconds");
+                ConsoleLogger.log("[BATCH] Scheduling recovery alert batch send in " + delaySeconds + " seconds");
                 scheduledRecoveryBatch = scheduler.schedule(
                     this::sendBatchedRecoveryAlerts,
                     delaySeconds,
                     TimeUnit.SECONDS
                 );
             } else {
-                System.out.println("[BATCH] Added to pending recovery alerts (will send with existing batch)");
+                ConsoleLogger.log("[BATCH] Added to pending recovery alerts (will send with existing batch)");
             }
         }
     }
@@ -287,7 +340,7 @@ public class WebPulse {
     private void sendBatchedFailureAlerts() {
         synchronized (failureLock) {
             if (!pendingFailureAlerts.isEmpty()) {
-                System.out.println("[BATCH] Sending batched failure alerts for " + pendingFailureAlerts.size() + " URL(s)");
+                ConsoleLogger.log("[BATCH] Sending batched failure alerts for " + pendingFailureAlerts.size() + " URL(s)");
                 mailClient.sendBatchHealthCheckAlert(new ArrayList<>(pendingFailureAlerts));
                 pendingFailureAlerts.clear();
             }
@@ -301,7 +354,7 @@ public class WebPulse {
     private void sendBatchedRecoveryAlerts() {
         synchronized (recoveryLock) {
             if (!pendingRecoveryAlerts.isEmpty()) {
-                System.out.println("[BATCH] Sending batched recovery alerts for " + pendingRecoveryAlerts.size() + " URL(s)");
+                ConsoleLogger.log("[BATCH] Sending batched recovery alerts for " + pendingRecoveryAlerts.size() + " URL(s)");
                 mailClient.sendBatchRecoveryAlert(new ArrayList<>(pendingRecoveryAlerts));
                 pendingRecoveryAlerts.clear();
             }
